@@ -38,27 +38,29 @@ object RunDemo {
       .foreach(println)
   }
 
+  val OptionalString = (s:String) => Some(NullableString(s))
+
   val testData: Seq[Person] = Seq(
     Person().update(
-      _.name := "Joe",
-      _.age := 32,
+      _.name.value := "Joe",
+      _.age.value := 32,
       _.gender := Gender.MALE),
     Person().update(
-      _.name := "Mark",
-      _.age := 21,
+      _.name.value := "Mark",
+      _.age.value := 21,
       _.gender := Gender.MALE,
       _.addresses := Seq(
-          Address(city = Some("San Francisco"), street=Some("3rd Street"))
+          Address(city = OptionalString("San Francisco"), street=OptionalString("3rd Street"))
       )),
     Person().update(
-      _.name := "Steven",
+      _.name.value := "Steven",
       _.gender := Gender.MALE,
       _.addresses := Seq(
-          Address(city = Some("San Francisco"), street=Some("5th Street")),
-          Address(city = Some("Sunnyvale"), street=Some("Wolfe"))
+          Address(city = OptionalString("San Francisco"), street=OptionalString("5th Street")),
+          Address(city = OptionalString("Sunnyvale"), street=OptionalString("Wolfe"))
       )),
     Person().update(
-      _.name := "Batya",
-      _.age := 11,
+      _.name.value := "Batya",
+      _.age.value := 11,
       _.gender := Gender.FEMALE))
 }
