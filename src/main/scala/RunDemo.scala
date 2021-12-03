@@ -8,13 +8,10 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.Dataset
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.SQLContext
-import org.apache.spark.sql.{Row, functions => F}
-import org.apache.spark.sql.types.BinaryType
 import org.apache.spark.rdd.RDD
 import scalapb.spark.Implicits._
 import scalapb.spark.ProtoSQL
-
-import java.util.UUID.randomUUID
+import scalapb.{GeneratedMessage, GeneratedMessageCompanion}
 
 object RunDemo {
 
@@ -42,33 +39,18 @@ object RunDemo {
       .foreach(println)
     
     // Convert to Dataframe with column containing binary proto data
-    val protosBinary = personsDS2.map({ row: Person => 
-        // This is not good in production, caching foibles can cause row ids to mutate. 
-        // Doing this here to simulate a unique row identifier. 
-        val id: String = randomUUID().toString
-        val binaryValue = row.update(_.id := id).toByteArray
-        val other_data = "some data"
-        (id, other_data, binaryValue)
+    val rawEventDS = personsDS2.map({ row: Person => 
+        RawEvent(
+          metadata = "some useful wrapping metadata",
+          value = row.toByteArray
+        )
       })
-    val binaryDF = protosBinary.toDF("id", "other_data", "value")
-    // This cache is required to prevent the `id` from mutating unexpectedly
-    binaryDF.cache
-    binaryDF.printSchema
+    rawEventDS.printSchema
 
-    // parse using dataset api and join back with original data:
-    val parsedDF = binaryDF
-      .select(F.col("value"))
-      .as[Array[Byte]]
-      .map(Person.parseFrom(_))
-    parsedDF.show(false)
-    binaryDF
-      .drop("value")
-      .join(
-        parsedDF.select(F.col("id"), F.struct("*").alias("parsedValue")),
-        usingColumns=Seq("id"),
-        joinType="left"
-      )
-      .show(false)
+    // Use the dataset API and scalapb GenericMessage to parse the data
+    // This works
+    val parsedDS: Dataset[ParsedEvent[Person]] = rawEventDS.map(raw => ParsedEvent.fromRaw[Person](raw))
+    parsedDS.show(false)
 
     // Parse using ProtoSQL.udf
     // Following https://scalapb.github.io/docs/sparksql#udfs
@@ -142,10 +124,8 @@ object RunDemo {
       at java.lang.Thread.run(Thread.java:748)
     */
     val protoParser = ProtoSQL.udf { bytes: Array[Byte] => Person.parseFrom(bytes) }
-    val parsedDF2 = binaryDF.withColumn("parsedValue", protoParser(binaryDF("value")))
+    val parsedDF2 = binaryDF.withColumn("value", protoParser(binaryDF("value")))
     parsedDF2.show(false)
-    
-    binaryDF.unpersist
   }
 
   val testData: Seq[Person] = Seq(
@@ -173,6 +153,25 @@ object RunDemo {
       _.gender := Gender.FEMALE))
 }
 
-case class Payload (
-  value: BinaryType
+case class RawEvent (
+  metadata: String,
+  value: Array[Byte]
 )
+
+case class ParsedEvent[A] (
+  metadata: String,
+  value: A
+)
+object ParsedEvent {
+  // inspired by https://scalapb.github.io/docs/generic/
+  def fromRaw[A <: GeneratedMessage](
+      raw: RawEvent
+  )(implicit
+      companion: GeneratedMessageCompanion[A]
+  ): ParsedEvent[A] = {
+    ParsedEvent(
+      metadata = raw.metadata,
+      value = companion.parseFrom(raw.value)
+    )
+  }
+}
